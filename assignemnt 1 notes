@@ -1,0 +1,194 @@
+DevOps
+Assignment 1
+
+
+i) Push code on github
+
+ii) install jenkins on docker via docker pull jenkins
+
+iii) Start Jenkins in a docker container:
+
+“docker run -p 8080:8080 -p 50000:50000 -d --net=host -v /var/run/docker.sock:/var/run/docker.sock -v forjenkins:/var/jenkins_home --restart=on-failure jenkins/jenkins:lts-jdk11”
+
+-v docker.sock parameter is important to link the docker socket with the docker socker of dockerinstalled on host. --net=host gives the container access to all the ports of the host, to connect jenkins with sonarqube container - was getting error localhost:9000 cant be reached in sonar analysis stage. This is a security risk better way is to run via docker compose file.
+
+iii) install sonarqube via docker pull sonarqube and run: 
+
+docker run -d --name sonarqube -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true -p 9000:9000 sonarqube:latest
+
+iv) install all docker related plugins in jenkins. also install cloudbee docker plugin and sonarscanner plugin in jenkins
+manage jenkins>tools and install sonarscanner under sonarqube scanner heading remember the name of the installation this same name will be used in jenkinsfile. I did not install automatically but that works too. i went into the docker container and manually installed sonarscanner but that is not necessary.
+ 
+
+v) add credentials for github and dockerhub by going in manage jenkins and configuration. remember the id set for these. github password will be the access token generated in github.
+sonarqube>administration>users> and make a access token add this access token
+
+vi) configure sonarqube server under manage jenkins>configure system. add localhost:9000 under server and point to the secret text credentials in which we stpored the access key provided by sonarqube
+i added credentials to dockerhub in the declarative pipeline section in configure system too just in case.
+
+vii) Install docker in the jenkins container. it is better to install docker in the docker image instead of the container:
+
+docker exec -it --user root <container id> bash
+curl https://get.docker.com/ > dockerinstall && chmod 777 dockerinstall && ./dockerinstall
+sudo chmod 666 /var/run/docker.sock   // inside container -and outside too
+
+viii) Add webhook in sonarqube under administration -> configuration->webhook:
+
+http://localhost:8080/sonarqube-webhook
+
+	“SonarQube Error: Invalid URL: loopback and wildcard addresses are not allowed for webhooks”
+
+To fix this error while adding localhost in sonarqube go into sonarqube administration>configuration>security and disable local webhook validation - again security risk.
+    
+    
+
+ix) To create pipeline select new item in jenkins and select pipeline.
+tick github project and add link to the repo without the .git
+tick build trigger poll scm and i added      for every minute can also use H    * for every hour
+i did pipeline from scm and added git under scm and link to repo with .git at end. crdentials to github under the same key gitkey defined earlier. placed jenkinsfile under the branch defined in github and file name which was jenkinsfile under script path (just file name not path)
+
+x) Add jenkinsfile script
+
+pipeline {
+  environment {
+	imagename = "ihamza59/helloo"
+	registryCredential = 'dockerkey'
+	dockerImage = ''
+  }
+  agent any
+  stages {
+	stage('Cloning Git') {
+  	steps {
+    	git([url: 'https://github.com/mhamza123/Pipeline-Testing.git', branch: 'master', credentialsId: 'gitkey'])
+ 
+  	}
+	}
+	stage('SonarQube Analysis') {
+	steps{
+	script{
+	def scannerHome = tool name: 'sonarqube-scanner';
+	withSonarQubeEnv('sonarqube-container') {
+  	sh "${scannerHome}/bin/sonar-scanner"
+  	}
+	}
+  }
+}
+	stage('Building image') {
+  	steps{
+    	script {
+      	dockerImage = docker.build imagename
+    	}
+  	}
+	}
+	stage('Deploy Image') {
+  	steps{
+    	script {
+      	docker.withRegistry( '', registryCredential ) {
+        	dockerImage.push("$BUILD_NUMBER")
+         	dockerImage.push('latest')
+      	}
+    	}
+  	}
+	}
+	stage('Remove Unused docker image') {
+  	steps{
+    	sh "docker rmi $imagename:$BUILD_NUMBER"
+     	sh "docker rmi $imagename:latest"
+ 
+  	}
+	}
+  }
+}
+
+registrycredential under docker deploy points to the credential id defined in the 4th line. tool name should be what we set  under manage jenkins>tools when we installed sonarscanner.
+inside withsonarqube the sonarqube-container refers to the name i gave in manage jenkins> configure system and then under sonarqube server.
+
+a point to note is that the script provided by sonarqube itself wont work as that is not right. needed to add the steps{ and script{ line to fix it. also had to add the installation name in sonarqubeenv()   // not a valid stage section (script{}) and expected a step errors were coming when building pipeline in jenkins.
+
+
+this docker compose file can be modified according to the commands above and should be used instead of --net=host and better effeciency too.
+version: "3.2"
+ 
+services:
+   jenkins:
+   	image: jenkinsci/jenkins:lts
+   	container_name: jenkins-container
+   	restart: always
+   	ports:
+       	- "8080:8080"
+       	- '50000:50000'
+   	volumes:
+   	- '/var/run/docker.sock:/var/run/docker.sock'
+   	- '/data/jenkins/jenkins_home:/var/jenkins_home'
+   	environment:
+   	- "JENKINS_OPTS=--prefix=/jenkins"
+ 
+   gitlab:
+   	image: gitlab/gitlab-ce:latest
+   	container_name: gitlab-container
+   	restart: always
+   	environment:
+       	- GITLAB_SECRETS_DB_KEY_BASE=long-and-random-alphanumeric-string
+       	- GITLAB_HOST=your-host-ip-here
+       	- GITLAB_PORT=10080
+       	- GITLAB_SSH_PORT=10022
+   	ports:
+       	- "10080:80"
+       	- "10022:22"
+   	volumes:
+   	- '/data/gitlab/config:/etc/gitlab'
+   	- '/data/gitlab/logs:/var/log/gitlab'
+   	- '/data/gitlab/data:/var/opt/gitlab'
+ 
+   sonarqube:
+   	image: sonarqube:7.9.2-community
+   	container_name: sonar-container
+   	restart: always
+   	networks:
+       	- sonarnet
+   	environment:
+       	- SONARQUBE_JDBC_USERNAME=sonar
+       	- SONARQUBE_JDBC_PASSWORD=your-strong-password-here
+       	- SONARQUBE_JDBC_URL=jdbc:postgresql://postgressdb:5432/sonarqube
+   	ports:
+   	- "9000:9000"
+   	- "9092:9092"
+   	volumes:
+   	- '/data/sonar/sonarqube_conf:/opt/sonarqube/conf'
+   	- '/data/sonar/sonarqube_data:/opt/sonarqube/data'
+   	- '/data/sonar/sonarqube_extensions:/opt/sonarqube/extensions'
+   	- '/data/sonar/sonarqube_bundled-plugins:/opt/sonarqube/lib/bundled-plugins'
+ 
+   postgressdb:
+   	image: postgres:12.1
+   	container_name: postgres-container
+   	restart: always
+   	networks:
+       	- sonarnet
+   	environment:
+       	- POSTGRES_USER=sonar
+       	- POSTGRES_PASSWORD=your-strong-password-here
+       	- POSTGRES_DB=sonarqube
+   	volumes:
+   	- '/data/postgresql/sonarqube_db:/var/lib/postgresql'
+   	- '/data/postgresql/postgresql_data:/var/lib/postgresql/data'
+ 
+networks:
+   sonarnet:
+	driver: bridge
+    
+    
+    
+    
+    
+    
+    
+	if you get error /var/run/docker.sock not found then you have to use the -v /var/run/docker.sock..... command defined earlier to link the socket and it will work.
+    
+    
+    
+	i used the following tutorials:
+	https://kevalnagda.github.io/jenkins-git-docker-image
+	https://gcore.com/learning/jenkins-pipeline-with-sonarqube-and-gitlab/
+
+
