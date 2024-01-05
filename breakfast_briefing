@@ -1,0 +1,45 @@
+HTTP/1.1 was standardized back in 1999. 
+Now we have a faster internet than what we had in 90s. A user now expects a faster web page load, better security of the data and better browsing experience.
+Issues in HTTP/1.1:
+1) HTTP Head of line blocking problem
+2) Non-Implementation of requests pipelining for request multiplexing
+3) Opening of multiple TCP connections for requesting multiple resources
+4) Textual nature of data transfer
+5) Long HTTP Headers
+6) Slow webpage loading
+
+HOL Problem:
+Refers to issue where browser/client has to wait for the requests prior to complete before news request can be sent.
+HOL requests blocks the subsequent ones on a single TCP connection.
+6 concurrent TCP connections can be established in standard browsers
+
+Cycle of HOL problem:
+DNS Lookup -> SocketConnect -> HTTP request -> Content Download
+Socket connection is a communication link b/w two computers using a network protocol like TCP or UDP. HTTP requests travel over these socket connections controlled by TCP/UDP protocol rules.
+HTTP request pipelining was implemented in version 1.1. Though, the intial request has to be sent separately, but the remaining requests can be pipelined, similarly the response can be too.
+However, it was difficult to implement, easy to break, and not well supported on browsers and servers.
+
+Opening multiple connections are first limitied, secondly, opening simultaneous concurrent connections, reduces bandwidth of each connection. This implies lower throughput through each connection, thus an increase in latency and bad application performance.
+
+Textual nature is good in terms of readability, ease of reimplementing and ease of debugging. 
+Textual require more complex parsing and often include delimiters and formatting
+However, binary protocols are more compact, less error-prone and are more secure because security concerns associated with textual attacks such as splitting are no longer relevant. 
+Splitting is manipulating the requests to get information.
+
+Long HTTP headers:
+There is no header compression technique and each request-response cycle includes many headers which adds load on network bandwidth.
+
+Techniques to overcome HTTP problems:
+1) Domain Sharding: Each browser can make 6 concurrent connections to a single domain. We can make multiple subdomains like a seperate subdomain for images and scripts etc, to enable the browser to make more concurrent connections.
+However, this leads to multiple DNS lookup cycles, excessive connection overhead and connection overhead.
+
+In HTTP/1.1, server only responds to the requests. It can't priortize content nor it can push contents on its own. In addition to it, it requires multiple expensive TLS handshakes for each connection
+
+
+-------------HTTP/2--------------------
+HTTP/2 enables a more efficient use of network resources and a reduced perception of latency by introducing header field compression and allowing multiple concurrent exchnages on the same connection. Allows Multiplexing too.
+Allows prioritization with the help of multiplexing.
+One channel with multiple requests, results in fewer TCP connections and longer lived connections.
+Better utilization of available network capacity.
+binary message framing
+
